@@ -8,7 +8,7 @@
       >
         <div class="userInfo">账号：{{ account }}</div>
         <div class="userInfo">到期时间：永久</div>
-        <el-avatar slot="reference" :size="55" icon="el-icon-user-solid"/>
+        <el-avatar slot="reference" :size="55" :src="avatar"/>
       </el-popover>
     </div>
     <el-menu :default-active="$route.path" router style="border:0" class="menu">
@@ -44,9 +44,10 @@ export default {
   data() {
     return {
       account: localStorage.getItem("account"),
+      avatar: './static/avatar.jpg',
       menuList: [
         {path: '/drama', title: '短剧', icon: 'el-icon-film'},
-        {path: '/episode', title: '剧集', icon: 'el-icon-video-camera'},
+        {path: '/chapter', title: '分集', icon: 'el-icon-video-camera'},
         {path: '/category', title: '分类', icon: 'el-icon-menu'},
         {path: '/setting', title: '设置', icon: 'el-icon-setting'},
       ],

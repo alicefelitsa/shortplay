@@ -3,18 +3,23 @@
     <div class="container">
       <h2 class="section-title">热门短剧</h2>
       <div class="drama-grid">
-        <div class="drama-card" v-for="item in dramaList" :key="item.id" @click="goDetail(item.id)">
+        <div class="drama-card" v-for="item in dramaList" :key="item.book_id" @click="goDetail(item.book_id)">
           <div class="cover-wrap">
-            <img v-lazy :data-src="item.cover" :alt="item.title" class="cover"/>
-            <span class="episode-tag">{{ item.total_episodes }}集</span>
+            <img v-lazy :data-src="item.cover_show" :alt="item.book_name" class="cover"/>
+            <span class="episode-tag" v-if="item.chapter_count">{{ item.chapter_count }}集</span>
+            <span class="free-tag" v-if="item.is_free === 1">免费</span>
           </div>
           <div class="info">
-            <h3 class="title">{{ item.title }}</h3>
-            <p class="category">{{ item.category }}</p>
+            <h3 class="title">{{ item.book_name }}</h3>
+            <p class="meta">
+              <span v-if="item.ratings" class="rating">★ {{ item.ratings }}</span>
+              <span v-if="item.view_count_text" class="views">{{ item.view_count_text }}</span>
+            </p>
           </div>
         </div>
       </div>
-      <div v-if="total > limit" class="load-more">
+      <div v-if="dramaList.length === 0 && !loading" class="empty">暂无数据</div>
+      <div v-if="total > dramaList.length" class="load-more">
         <button @click="loadMore" :disabled="loading">
           {{ loading ? '加载中...' : '加载更多' }}
         </button>
@@ -55,8 +60,8 @@ export default {
       this.page++
       this.fetchData()
     },
-    goDetail(id) {
-      this.$router.push(`/drama/${id}`)
+    goDetail(bookId) {
+      this.$router.push(`/drama/${bookId}`)
     }
   }
 }
@@ -127,6 +132,17 @@ export default {
   border-radius: 3px;
 }
 
+.free-tag {
+  position: absolute;
+  top: 6px;
+  left: 6px;
+  background: rgba(103, 194, 58, 0.9);
+  color: #fff;
+  font-size: 11px;
+  padding: 2px 6px;
+  border-radius: 3px;
+}
+
 .info {
   padding: 8px 10px;
 }
@@ -141,10 +157,22 @@ export default {
   white-space: nowrap;
 }
 
-.category {
+.meta {
   font-size: 12px;
   color: #999;
   margin: 0;
+  display: flex;
+  gap: 8px;
+}
+
+.rating {
+  color: #ff9900;
+}
+
+.empty {
+  text-align: center;
+  color: #999;
+  padding: 40px 0;
 }
 
 .load-more {

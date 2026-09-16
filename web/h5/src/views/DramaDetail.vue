@@ -1,12 +1,29 @@
 <template>
   <div class="drama-detail">
     <div class="container" v-if="drama">
+      <!-- 视频播放区域（置顶） -->
+      <div class="player-wrap" v-if="currentEpisode">
+        <video
+            controls
+            class="video-player"
+            :src="videoOf(currentEpisode)"
+            :poster="currentEpisode.cover || drama.cover_show"
+        ></video>
+        <h3 class="now-playing">正在播放：{{ currentEpisode.chapter_name || ('第' + (currentEpisode.chapter_index + 1) + '集') }}</h3>
+      </div>
+
       <div class="detail-header">
-        <img :src="drama.cover" :alt="drama.title" class="detail-cover"/>
+        <img :src="drama.cover_show" :alt="drama.book_name" class="detail-cover"/>
         <div class="detail-info">
-          <h1>{{ drama.title }}</h1>
-          <p class="meta">分类：{{ drama.category }} | 共{{ drama.total_episodes }}集</p>
-          <p class="desc">{{ drama.description }}</p>
+          <h1>{{ drama.book_name }}</h1>
+          <p class="meta">
+            <span v-if="drama.ratings" class="rating">★ {{ drama.ratings }}</span>
+            <span v-if="drama.language">语言：{{ drama.language }}</span>
+            <span>共{{ drama.chapter_count || episodes.length }}集</span>
+            <span v-if="drama.view_count_text">{{ drama.view_count_text }}播放</span>
+          </p>
+          <p class="author" v-if="drama.author">作者：{{ drama.author }}</p>
+          <p class="desc">{{ drama.introduction }}</p>
         </div>
       </div>
 
@@ -15,21 +32,27 @@
         <div
             class="episode-item"
             v-for="ep in episodes"
-            :key="ep.id"
-            :class="{active: currentEpisode && currentEpisode.id === ep.id}"
+            :key="ep.chapter_id"
+            :class="{active: currentEpisode && currentEpisode.chapter_id === ep.chapter_id}"
             @click="playEpisode(ep)"
         >
-          <span class="ep-sort">第{{ ep.sort }}集</span>
-          <span class="ep-title">{{ ep.title }}</span>
-          <el-tag v-if="ep.is_free === 0" size="mini" type="warning">付费</el-tag>
+          <span class="ep-sort">{{ ep.chapter_index_str || (ep.chapter_index + 1) }}</span>
+          <span class="ep-title">{{ ep.chapter_name }}</span>
+          <el-tag v-if="ep.is_unlock === 0" size="mini" type="warning">锁</el-tag>
         </div>
       </div>
+      <div v-if="episodes.length === 0" class="empty">暂无剧集</div>
 
-      <!-- 视频播放区域 -->
-      <div class="player-wrap" v-if="currentEpisode">
-        <h3>正在播放：{{ currentEpisode.title }}</h3>
-        <video controls class="video-player" :src="currentEpisode.video_url"></video>
-      </div>
+      <!-- 推荐位 -->
+      <template v-if="recommends.length > 0">
+        <h2 class="section-title">相关推荐</h2>
+        <div class="recommend-grid">
+          <div class="rec-card" v-for="r in recommends" :key="r.book_id" @click="goDetail(r.book_id)">
+            <img v-lazy :data-src="r.cover_show" :alt="r.book_name" class="rec-cover"/>
+            <p class="rec-title">{{ r.book_name }}</p>
+          </div>
+        </div>
+      </template>
     </div>
   </div>
 </template>
@@ -43,24 +66,41 @@ export default {
     return {
       drama: null,
       episodes: [],
+      recommends: [],
       currentEpisode: null,
     }
   },
   created() {
     this.fetchData()
   },
+  watch: {
+    '$route.params.id'() {
+      this.fetchData()
+    }
+  },
   methods: {
+    videoOf(ep) {
+      // 优先用后端签名的播放地址（CF Worker 校验），回退旧采集源
+      return ep.play_url || ep.mp4_url || ''
+    },
     fetchData() {
-      const id = this.$route.params.id
-      getDramaDetail(id).then(res => {
+      const bookId = this.$route.params.id
+      getDramaDetail(bookId).then(res => {
         if (res.data.code === 0) {
           this.drama = res.data.data && res.data.data[0]
           this.episodes = res.data.episodes || []
+          this.recommends = res.data.recommends || []
+          // 自动选中第一集
+          this.currentEpisode = this.episodes.length > 0 ? this.episodes[0] : null
         }
       })
     },
     playEpisode(ep) {
       this.currentEpisode = ep
+      window.scrollTo({top: 0, behavior: 'smooth'})
+    },
+    goDetail(bookId) {
+      this.$router.push(`/drama/${bookId}`)
     }
   }
 }
@@ -77,6 +117,23 @@ export default {
   padding: 0 16px;
 }
 
+.player-wrap {
+  margin-bottom: 20px;
+}
+
+.video-player {
+  width: 100%;
+  border-radius: 8px;
+  background: #000;
+  max-height: 480px;
+}
+
+.now-playing {
+  font-size: 15px;
+  margin: 12px 0 0;
+  color: #333;
+}
+
 .detail-header {
   display: flex;
   gap: 20px;
@@ -89,6 +146,7 @@ export default {
   object-fit: cover;
   border-radius: 8px;
   flex-shrink: 0;
+  background: #f0f0f0;
 }
 
 .detail-info h1 {
@@ -100,7 +158,20 @@ export default {
 .meta {
   font-size: 13px;
   color: #999;
-  margin: 0 0 10px;
+  margin: 0 0 8px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+}
+
+.rating {
+  color: #ff9900;
+}
+
+.author {
+  font-size: 13px;
+  color: #666;
+  margin: 0 0 8px;
 }
 
 .desc {
@@ -149,6 +220,7 @@ export default {
   font-weight: 500;
   color: #1890ff;
   white-space: nowrap;
+  min-width: 28px;
 }
 
 .ep-title {
@@ -157,22 +229,40 @@ export default {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+  flex: 1;
 }
 
-.player-wrap {
-  margin-top: 16px;
+.recommend-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(120px, 1fr));
+  gap: 12px;
 }
 
-.player-wrap h3 {
-  font-size: 15px;
-  margin-bottom: 12px;
-  color: #333;
+.rec-card {
+  cursor: pointer;
 }
 
-.video-player {
+.rec-cover {
   width: 100%;
-  border-radius: 8px;
-  background: #000;
+  aspect-ratio: 3 / 4;
+  object-fit: cover;
+  border-radius: 6px;
+  background: #f0f0f0;
+}
+
+.rec-title {
+  font-size: 13px;
+  color: #333;
+  margin: 6px 0 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.empty {
+  text-align: center;
+  color: #999;
+  padding: 30px 0;
 }
 
 @media (max-width: 480px) {
@@ -180,6 +270,9 @@ export default {
     flex-direction: column;
     align-items: center;
     text-align: center;
+  }
+  .meta {
+    justify-content: center;
   }
   .detail-cover {
     width: 120px;

@@ -13,14 +13,16 @@
       </div>
 
       <div class="drama-grid" v-if="dramaList.length > 0">
-        <div class="drama-card" v-for="item in dramaList" :key="item.id" @click="goDetail(item.id)">
+        <div class="drama-card" v-for="item in dramaList" :key="item.book_id" @click="goDetail(item.book_id)">
           <div class="cover-wrap">
-            <img v-lazy :data-src="item.cover" :alt="item.title" class="cover"/>
-            <span class="episode-tag">{{ item.total_episodes }}集</span>
+            <img v-lazy :data-src="item.cover_show" :alt="item.book_name" class="cover"/>
+            <span class="episode-tag" v-if="item.chapter_count">{{ item.chapter_count }}集</span>
           </div>
           <div class="info">
-            <h3 class="title">{{ item.title }}</h3>
-            <p class="category">{{ item.category }}</p>
+            <h3 class="title">{{ item.book_name }}</h3>
+            <p class="category">
+              <span v-if="item.ratings" class="rating">★ {{ item.ratings }}</span>
+            </p>
           </div>
         </div>
       </div>
@@ -54,8 +56,8 @@ export default {
         }
       })
     },
-    goDetail(id) {
-      this.$router.push(`/drama/${id}`)
+    goDetail(bookId) {
+      this.$router.push(`/drama/${bookId}`)
     }
   }
 }
@@ -170,6 +172,10 @@ export default {
   font-size: 12px;
   color: #999;
   margin: 0;
+}
+
+.rating {
+  color: #ff9900;
 }
 
 .empty {

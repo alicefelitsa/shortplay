@@ -6,7 +6,6 @@ Vue.use(VueRouter)
 const routes = [
     {
         path: '/login',
-        name: 'login',
         component: () => import('@/views/login'),
         meta: {title: '管理员登录'}
     },
@@ -22,10 +21,10 @@ const routes = [
                 meta: {title: '短剧管理'}
             },
             {
-                path: 'episode',
-                name: 'episode',
-                component: () => import('@/views/episode/index'),
-                meta: {title: '剧集管理'}
+                path: 'chapter',
+                name: 'chapter',
+                component: () => import('@/views/chapter/index'),
+                meta: {title: '分集管理'}
             },
             {
                 path: 'category',
@@ -37,7 +36,7 @@ const routes = [
                 path: 'setting',
                 name: 'setting',
                 component: () => import('@/views/setting'),
-                meta: {title: '系统设置'}
+                meta: {title: '站点设置'}
             },
         ]
     },
@@ -57,7 +56,7 @@ const router = new VueRouter({
 // 全局前置守卫
 router.beforeEach((to, from, next) => {
     if (to.meta.title) {
-        document.title = to.meta.title
+        document.title = to.meta.title + ' - 短剧管理后台'
     }
 
     if (to.path === '/login') {
