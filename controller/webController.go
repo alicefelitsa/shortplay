@@ -1,6 +1,9 @@
 package controller
 
 import (
+	"encoding/json"
+	"fmt"
+	"io"
 	"net/http"
 	"shortplay/config"
 	"shortplay/tools"
@@ -167,4 +170,43 @@ func (wc *WebController) GetSiteConfig(c *gin.Context) {
 			"display_type": cfg.DisplayType,
 		},
 	})
+}
+
+// GetSubtitle 字幕代理：服务端拉取字幕原样返回（播放器自行解析 SRT），规避浏览器跨域 fetch 限制
+// 路由格式 /GetSubtitle/{id}_{i}.srt，.srt 后缀便于播放器按扩展名识别字幕类型
+func (wc *WebController) GetSubtitle(c *gin.Context) {
+	parts := strings.Split(strings.TrimSuffix(c.Param("file"), ".srt"), "_")
+	if len(parts) != 2 {
+		c.String(http.StatusNotFound, "subtitle not found")
+		return
+	}
+	idx := 0
+	_, _ = fmt.Sscanf(parts[1], "%d", &idx)
+	var subtitle string
+	_ = wc.db.Raw("select subtitle from drama_chapter where id = ?", parts[0]).Row().Scan(&subtitle)
+	paths := make([]string, 0)
+	if subtitle != "" && subtitle != "[]" {
+		_ = json.Unmarshal([]byte(subtitle), &paths)
+	}
+	if idx < 0 || idx >= len(paths) {
+		c.String(http.StatusNotFound, "subtitle not found")
+		return
+	}
+	p := paths[idx]
+	if !strings.HasPrefix(p, "/") {
+		p = "/" + p
+	}
+	// 字幕无需签名（CF Worker 仅校验视频签名），直接拼路径拉取
+	resp, err := http.Get(playDomain(wc.db) + "/file" + p)
+	if err != nil {
+		c.String(http.StatusBadGateway, "fetch subtitle failed: "+err.Error())
+		return
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		c.String(http.StatusBadGateway, "fetch subtitle failed: status "+resp.Status)
+		return
+	}
+	body, _ := io.ReadAll(resp.Body)
+	c.Data(http.StatusOK, "text/plain; charset=utf-8", body)
 }

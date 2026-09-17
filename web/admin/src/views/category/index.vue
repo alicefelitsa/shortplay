@@ -24,7 +24,7 @@
       </div>
 
       <!--数据表格-->
-      <el-table class="tableData" :data="tableData" :highlight-selection-row="true" height="calc(100vh - 182px)"
+      <el-table ref="table" class="tableData" :data="tableData" :highlight-selection-row="true" height="calc(100vh - 182px)"
                 :border="true"
                 v-loading="loading" @selection-change="handleSelectionChange">
         <el-table-column type="selection" width="55" align="center"></el-table-column>
@@ -121,7 +121,8 @@ export default {
     }
   },
   mounted() {
-    this.where.limit = this.pageSizes[0]
+    const savedSize = Number(localStorage.getItem('adminPageSize'))
+    this.where.limit = this.pageSizes.includes(savedSize) ? savedSize : this.pageSizes[0]
     this.getTypeList()
   },
   methods: {
@@ -134,6 +135,11 @@ export default {
           if (res.data.code === 0) {
             this.tableData = res.data.data || [];
             this.totalData = res.data.count || 0
+            //翻页/查询后滚动回顶部（页面 + 表格内部）
+            this.$nextTick(() => {
+              window.scrollTo(0, 0)
+              if (this.$refs.table) this.$refs.table.bodyWrapper.scrollTop = 0
+            })
           }
         } catch (e) {
           this.$message.error(e.message);
@@ -155,6 +161,7 @@ export default {
     },
     //页数
     handleSizeChange(val) {
+      localStorage.setItem('adminPageSize', val)
       this.where.limit = val
       this.getTypeList()
     },

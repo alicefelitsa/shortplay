@@ -1,6 +1,7 @@
 package controller
 
 import (
+	"encoding/json"
 	"fmt"
 	"net/http"
 	"shortplay/config"
@@ -105,11 +106,19 @@ func (bc *BossController) GetDramaList(c *gin.Context) {
 	conds := "flag = 1"
 	bookName := c.Query("book_name")
 	status := c.Query("status")
+	typeId := c.Query("type_id")
+	bookId := c.Query("book_id")
 	if bookName != "" {
 		conds += fmt.Sprintf(" and book_name like '%%%v%%'", bookName)
 	}
 	if status != "" {
 		conds += fmt.Sprintf(" and status = '%v'", status)
+	}
+	if typeId != "" {
+		conds += fmt.Sprintf(" and main_type_id = '%v'", typeId)
+	}
+	if bookId != "" {
+		conds += fmt.Sprintf(" and book_id like '%%%v%%'", bookId)
 	}
 	where := " where " + conds
 	data := make([]map[string]interface{}, 0)
@@ -207,20 +216,94 @@ func (bc *BossController) GetChapterList(c *gin.Context) {
 	bookId := c.Query("book_id")
 	if bookId != "" {
 		where = fmt.Sprintf(" where book_id = '%v'", bookId)
+	} else {
+		//默认列表只显示 flag=1 短剧关联的集（与 H5 展示同口径）；按剧集ID查询时不限
+		where = " where exists (select 1 from drama_book b where b.book_id = drama_chapter.book_id and b.flag = 1)"
 	}
 	data := make([]map[string]interface{}, 0)
-	err := bc.db.Raw("select id,book_id,chapter_id,chapter_name,chapter_index,chapter_index_str,is_unlock,chapter_price,duration,m3u8_flag,mp4_url,video_url,created_at from drama_chapter" + where + " order by chapter_index asc" + config.PageLimit(c)).Scan(&data).Error
+	err := bc.db.Raw("select id,book_id,chapter_id,chapter_name,chapter_index,chapter_index_str,is_unlock,chapter_price,duration,m3u8_flag,mp4_url,video_url,subtitle,created_at from drama_chapter" + where + " order by chapter_index asc" + config.PageLimit(c)).Scan(&data).Error
 	if err != nil {
 		c.JSON(http.StatusOK, gin.H{"code": 500, "message": err.Error()})
 		return
 	}
 	formatTimeFields(data)
+	// 视频播放地址：/file + video_url 并做 HMAC 签名（CF Worker 校验），有效期读配置
+	domain := playDomain(bc.db)
+	secret := videoSecret(bc.db)
+	expireMinutes := videoExpireMinutes(bc.db)
+	for _, row := range data {
+		vu, _ := row["video_url"].(string)
+		if vu != "" {
+			if !strings.HasPrefix(vu, "/") {
+				vu = "/" + vu
+			}
+			row["play_url"] = tools.GenerateSignedVideoURL(domain, "/file"+vu, secret, expireMinutes)
+		}
+		// 字幕地址：JSON 数组，逐条签名供 <track> 加载
+		subs := make([]string, 0)
+		if subRaw, _ := row["subtitle"].(string); subRaw != "" && subRaw != "[]" {
+			paths := make([]string, 0)
+			if json.Unmarshal([]byte(subRaw), &paths) == nil {
+				for _, p := range paths {
+					if p == "" {
+						continue
+					}
+					if !strings.HasPrefix(p, "/") {
+						p = "/" + p
+					}
+					subs = append(subs, tools.GenerateSignedVideoURL(domain, "/file"+p, secret, expireMinutes))
+				}
+			}
+		}
+		row["subtitle_urls"] = subs
+	}
+	//关联剧名：按当页 book_id 批量查 drama_book 注入，供列表列展示（book_id 可能为数值类型，统一 Sprintf 归一化）
+	bookIds := make([]string, 0)
+	seen := map[string]bool{}
+	for _, row := range data {
+		if row["book_id"] == nil {
+			continue
+		}
+		bid := fmt.Sprintf("%v", row["book_id"])
+		if bid != "" && !seen[bid] {
+			seen[bid] = true
+			bookIds = append(bookIds, bid)
+		}
+	}
+	if len(bookIds) > 0 {
+		placeholders := strings.TrimSuffix(strings.Repeat("?,", len(bookIds)), ",")
+		args := make([]interface{}, len(bookIds))
+		for i, id := range bookIds {
+			args[i] = id
+		}
+		books := make([]map[string]interface{}, 0)
+		if bc.db.Raw("select book_id,book_name from drama_book where book_id in ("+placeholders+")", args...).Scan(&books).Error == nil {
+			nameMap := map[string]string{}
+			for _, b := range books {
+				nameMap[fmt.Sprintf("%v", b["book_id"])] = fmt.Sprintf("%v", b["book_name"])
+			}
+			for _, row := range data {
+				if row["book_id"] != nil {
+					row["book_name"] = nameMap[fmt.Sprintf("%v", row["book_id"])]
+				}
+			}
+		}
+	}
 	err = bc.db.Raw("select count(id) from drama_chapter" + where).Scan(&count).Error
 	if err != nil {
 		c.JSON(http.StatusOK, gin.H{"code": 501, "message": err.Error()})
 		return
 	}
-	c.JSON(http.StatusOK, gin.H{"code": code, "message": "操作成功", "count": count, "data": data})
+	//剧名：按剧集ID查 drama_book 随列表返回，前端工具栏/播放标题展示（直接输入ID查询时无跳转参数）
+	bookName := ""
+	queryBookId := bookId
+	if queryBookId == "" && len(data) > 0 && data[0]["book_id"] != nil {
+		queryBookId = fmt.Sprintf("%v", data[0]["book_id"])
+	}
+	if queryBookId != "" {
+		_ = bc.db.Raw("select book_name from drama_book where book_id = ?", queryBookId).Row().Scan(&bookName)
+	}
+	c.JSON(http.StatusOK, gin.H{"code": code, "message": "操作成功", "count": count, "data": data, "book_name": bookName})
 }
 
 // AddChapter 添加分集
@@ -261,6 +344,22 @@ func (bc *BossController) SaveChapter(c *gin.Context) {
 func (bc *BossController) DelChapter(c *gin.Context) {
 	ids := c.Query("ids")
 	result := bc.db.Exec("delete from drama_chapter where id in(" + ids + ")")
+	if result.RowsAffected > 0 {
+		c.JSON(http.StatusOK, gin.H{"code": 0, "message": "操作成功"})
+	} else {
+		c.JSON(http.StatusOK, gin.H{"code": 400, "message": "操作失败"})
+	}
+}
+
+// SetChapterUnlock 批量设置解锁状态（ids 逗号分隔；is_unlock 仅接受 0/1 校验后拼接）
+func (bc *BossController) SetChapterUnlock(c *gin.Context) {
+	ids := c.Query("ids")
+	unlock := c.Query("is_unlock")
+	if ids == "" || (unlock != "0" && unlock != "1") {
+		c.JSON(http.StatusOK, gin.H{"code": 400, "message": "参数错误"})
+		return
+	}
+	result := bc.db.Exec("update drama_chapter set is_unlock = "+unlock+", updated_at = ? where id in("+ids+")", time.Now())
 	if result.RowsAffected > 0 {
 		c.JSON(http.StatusOK, gin.H{"code": 0, "message": "操作成功"})
 	} else {

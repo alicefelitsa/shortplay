@@ -41,6 +41,7 @@ func SetupRouter() *gin.Engine {
 		boss.POST("/AddChapter", bossController.AddChapter)
 		boss.POST("/SaveChapter", bossController.SaveChapter)
 		boss.GET("/DelChapter", bossController.DelChapter)
+		boss.GET("/SetChapterUnlock", bossController.SetChapterUnlock)
 		// 分类管理
 		boss.GET("/GetTypeList", bossController.GetTypeList)
 		boss.POST("/AddType", bossController.AddType)
@@ -61,6 +62,8 @@ func SetupRouter() *gin.Engine {
 		web.GET("/GetCategory", webController.GetCategory)
 		web.GET("/Search", webController.Search)
 		web.GET("/GetSiteConfig", webController.GetSiteConfig)
+		// 字幕代理（SRT 原样返回，供播放器同源加载）
+		web.GET("/GetSubtitle/:file", webController.GetSubtitle)
 	}
 	// 上传的图片静态服务
 	router.Static("/uploads", "./uploads")

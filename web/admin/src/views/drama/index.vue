@@ -15,6 +15,15 @@
                 <el-option label="已下架" value="OFFLINE"></el-option>
               </el-select>
             </el-form-item>
+            <el-form-item label="分类">
+              <el-select v-model="where.type_id" placeholder="请选择" clearable class="queryElInput">
+                <el-option v-for="item in typeList" :key="item.type_id" :label="item.type_name"
+                           :value="item.type_id"></el-option>
+              </el-select>
+            </el-form-item>
+            <el-form-item label="剧集ID">
+              <el-input v-model="where.book_id" placeholder="请输入" clearable class="queryElInput"></el-input>
+            </el-form-item>
             <el-form-item>
               <el-button type="primary" @click="search">查询</el-button>
               <el-button icon="el-icon-refresh" @click="reset">重置</el-button>
@@ -30,13 +39,18 @@
       </div>
 
       <!--数据表格-->
-      <el-table class="tableData" :data="tableData" :highlight-selection-row="true" height="calc(100vh - 182px)"
+      <el-table ref="table" class="tableData" :data="tableData" :highlight-selection-row="true" height="calc(100vh - 182px)"
                 :border="true"
                 v-loading="loading" @selection-change="handleSelectionChange">
         <el-table-column type="selection" width="55" align="center"></el-table-column>
         <el-table-column prop="id" label="ID" width="60px">
           <template v-slot="{row}">
             {{ row.id }}
+          </template>
+        </el-table-column>
+        <el-table-column prop="book_id" label="剧集ID" width="110px" align="center">
+          <template v-slot="{row}">
+            {{ row.book_id }}
           </template>
         </el-table-column>
         <el-table-column prop="cover" label="封面" align="center" width="90px">
@@ -78,23 +92,14 @@
             {{ row.view_count }}
           </template>
         </el-table-column>
-        <el-table-column prop="is_free" label="付费" width="70px" align="center">
-          <template v-slot="{row}">
-            <el-tag :type="row.is_free === 1 ? 'success' : 'warning'" size="small">
-              {{ row.is_free === 1 ? '免费' : '付费' }}
-            </el-tag>
-          </template>
-        </el-table-column>
         <el-table-column prop="status" label="状态" width="80px" align="center">
           <template v-slot="{row}">
-            <el-tag :type="row.status === 'PUBLISHED' ? 'success' : 'info'" size="small">
-              {{ row.status === 'PUBLISHED' ? '已发布' : '已下架' }}
-            </el-tag>
-          </template>
-        </el-table-column>
-        <el-table-column prop="created_at" label="时间" min-width="160px">
-          <template v-slot="{row}">
-            {{ row.created_at }}
+            <el-switch
+                v-model="row.status"
+                active-value="PUBLISHED"
+                inactive-value="OFFLINE"
+                @change="toggleStatus(row)">
+            </el-switch>
           </template>
         </el-table-column>
         <el-table-column label="操作" align="center" width="150px" fixed="right">
@@ -129,7 +134,7 @@
 </template>
 
 <script>
-import {getDramaList, delDrama} from "@/api/drama";
+import {getDramaList, delDrama, saveDrama} from "@/api/drama";
 import {getTypeList} from "@/api/category";
 import save from "./save";
 
@@ -145,6 +150,8 @@ export default {
       where: {
         book_name: '',
         status: '',
+        type_id: '',
+        book_id: '',
         page: 1,
         limit: 30,
       },
@@ -155,7 +162,8 @@ export default {
     }
   },
   mounted() {
-    this.where.limit = this.pageSizes[0]
+    const savedSize = Number(localStorage.getItem('adminPageSize'))
+    this.where.limit = this.pageSizes.includes(savedSize) ? savedSize : this.pageSizes[0]
     this.getDramaList()
     this.getTypeList()
   },
@@ -173,6 +181,11 @@ export default {
           if (res.data.code === 0) {
             this.tableData = res.data.data || [];
             this.totalData = res.data.count || 0
+            //翻页/查询后滚动回顶部（页面 + 表格内部）
+            this.$nextTick(() => {
+              window.scrollTo(0, 0)
+              if (this.$refs.table) this.$refs.table.bodyWrapper.scrollTop = 0
+            })
           }
         } catch (e) {
           this.$message.error(e.message);
@@ -186,7 +199,7 @@ export default {
       try {
         let res = await getTypeList({page: 1, limit: 1000})
         if (res.data.code === 0) {
-          this.typeList = (res.data.data || []).filter(t => t.type_id !== 0)
+          this.typeList = res.data.data || []
         }
       } catch (e) {
         this.$message.error(e.message);
@@ -201,11 +214,14 @@ export default {
     reset() {
       this.where.book_name = ''
       this.where.status = ''
+      this.where.type_id = ''
+      this.where.book_id = ''
       this.where.page = 1
       this.getDramaList()
     },
     //页数
     handleSizeChange(val) {
+      localStorage.setItem('adminPageSize', val)
       this.where.limit = val
       this.getDramaList()
     },
@@ -234,6 +250,21 @@ export default {
     edit(row) {
       this.editData = {...row}
       this.dialogVisible = true;
+    },
+    //切换发布状态（开关），失败回滚
+    async toggleStatus(row) {
+      try {
+        let res = await saveDrama({id: row.id, status: row.status})
+        if (res.data.code === 0) {
+          this.$message.success(res.data.message)
+        } else {
+          this.$message.error(res.data.message)
+          await this.getDramaList()
+        }
+      } catch (e) {
+        this.$message.error(e.message)
+        await this.getDramaList()
+      }
     },
     //删除
     async del() {

@@ -35,12 +35,13 @@
             </el-form-item>
           </el-col>
           <el-col :span="24">
-            <el-form-item label="MP4地址">
-              <el-input v-model="form.mp4_url" type="textarea" :rows="2" placeholder="视频 MP4 地址"></el-input>
+            <el-form-item label="字幕路径">
+              <el-input v-model="subtitleText" type="textarea" :rows="4"
+                        placeholder="字幕路径每行一条（如 /video/42000024160/701452748_episode_5/en.srt），留空为无字幕"></el-input>
             </el-form-item>
           </el-col>
           <el-col :span="24">
-            <el-form-item label="本地路径">
+            <el-form-item label="视频路径">
               <el-input v-model="form.video_url" placeholder="本地视频路径（可选）"></el-input>
             </el-form-item>
           </el-col>
@@ -87,6 +88,8 @@ export default {
   data() {
     return {
       form: this.emptyForm(),
+      //字幕编辑文本（每行一条路径），保存时转 JSON 数组
+      subtitleText: '',
       rules: {
         book_id: [{required: true, message: '请输入剧集ID', trigger: 'blur'}],
         chapter_id: [{required: true, message: '请输入分集ID', trigger: 'blur'}],
@@ -107,6 +110,7 @@ export default {
     visible(val) {
       if (val) {
         this.form = {...this.emptyForm(), ...(this.editData || {})}
+        this.subtitleText = this.toSubtitleText(this.form.subtitle)
         this.$nextTick(() => {
           this.$refs.form && this.$refs.form.clearValidate()
         })
@@ -114,6 +118,16 @@ export default {
     }
   },
   methods: {
+    //subtitle JSON 数组 -> 换行文本供 textarea 回显
+    toSubtitleText(s) {
+      if (!s || s === '[]') return ''
+      try {
+        const arr = JSON.parse(s)
+        return Array.isArray(arr) ? arr.join('\n') : String(s)
+      } catch (e) {
+        return String(s)
+      }
+    },
     emptyForm() {
       return {
         id: null,
@@ -121,8 +135,8 @@ export default {
         chapter_id: '',
         chapter_name: '',
         chapter_index: 0,
-        mp4_url: '',
         video_url: '',
+        subtitle: '',
         duration: 0,
         chapter_price: 0,
         is_unlock: 1,
@@ -133,8 +147,23 @@ export default {
       this.$refs.form.validate(async (valid) => {
         if (!valid) return
         try {
+          //只提交表字段：排除列表注入的 play_url/subtitle_urls/book_name 等，避免更新不存在列失败
+          const paths = this.subtitleText.split('\n').map(s => s.trim()).filter(s => s)
+          const payload = {
+            id: this.form.id,
+            book_id: this.form.book_id,
+            chapter_id: this.form.chapter_id,
+            chapter_name: this.form.chapter_name,
+            chapter_index: this.form.chapter_index,
+            duration: this.form.duration,
+            chapter_price: this.form.chapter_price,
+            video_url: this.form.video_url,
+            is_unlock: this.form.is_unlock,
+            subtitle: JSON.stringify(paths),
+          }
+          if (!payload.id) delete payload.id
           const addOrSave = this.form.id ? saveChapter : addChapter;
-          let res = await addOrSave({...this.form})
+          let res = await addOrSave(payload)
           if (res.data.code === 0) {
             this.$message.success(res.data.message)
             this.handleClose()

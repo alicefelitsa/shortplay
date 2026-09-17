@@ -19,3 +19,8 @@ export function saveChapter(data) {
 export function delChapter(ids) {
     return request.get('/DelChapter', { params: { ids } })
 }
+
+// 批量设置解锁状态（isUnlock: 1 解锁 0 锁定）
+export function setChapterUnlock(ids, isUnlock) {
+    return request.get('/SetChapterUnlock', { params: { ids, is_unlock: isUnlock } })
+}
