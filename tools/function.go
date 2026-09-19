@@ -11,16 +11,33 @@ import (
 	"errors"
 	"fmt"
 	"github.com/gin-gonic/gin"
+	"github.com/tagphi/czdb-search-golang/pkg/db"
 	"math"
 	"math/big"
 	randNew "math/rand"
 	"mime/multipart"
 	"os"
 	"path"
+	"regexp"
+	"shortplay/config"
 	"strconv"
 	"strings"
 	"time"
 )
+
+// GetIpAddress 获取IP地理位置，纯真社区IP库
+func GetIpAddress(ip string) string {
+	region, err := db.Search(ip, config.Cz88Ip)
+	if err != nil {
+		fmt.Println("IP位置获取失败：", err)
+		return ""
+	} else {
+		re := regexp.MustCompile(`\s+`)
+		newStr := re.ReplaceAllString(region, "")
+		//fmt.Println(newStr)
+		return newStr
+	}
+}
 
 // Md5 md5加密
 func Md5(src string) string {

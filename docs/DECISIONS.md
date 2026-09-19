@@ -81,9 +81,12 @@
 - **5.4.0 没有 `subtitles` 数组选项**（传了会被静默忽略）：默认字幕用 `subtitle: {url, type:'srt', name}` 单对象；多语言切换用 `player.setting.add({name, html, tooltip, selector, onSelect})` 挂进齿轮菜单，onSelect 里 `player.subtitle.switch(url, {type:'srt'})`，「无字幕」用 `player.subtitle.style({display:'none'})`（恢复传 `display:''`）。
 - 齿轮菜单按启用项动态生成：`setting: true` + `playbackRate / aspectRatio / flip / subtitleOffset`；全不启用时菜单为空、点击像无反应；中文界面 `lang: 'zh-cn'`（内置于核心包）。
 - **字幕位置**：默认 `--art-subtitle-bottom: 15px` 贴底，短剧手机端观看用 `cssVar: {'--art-subtitle-bottom': '15%'}` 抬高；控制栏显示时 ArtPlayer 自动叠加控制栏高度。
-- **字幕代理**：`GET /api/web/GetSubtitle/{chapterId}_{index}.srt`（挂 **web 组免鉴权**，播放器请求带不了登录 token）。服务端查 `drama_chapter.subtitle` 取对应路径后 `http.Get(domain + "/file" + path)` **原样返回**（`text/plain`，不做格式转换）。保留代理仅为规避浏览器跨域 fetch 限制；`.srt` 后缀供播放器识别类型。
+- **字幕代理**：服务端查 `drama_chapter.subtitle` 取对应路径后 `http.Get(domain + "/file" + path)` **原样返回**（`text/plain`，不做格式转换）。保留代理仅为规避浏览器跨域 fetch 限制；`.srt` 后缀供播放器识别类型。**前后端接口分离，后台不调用前端接口**：公共逻辑抽为 `controller.serveSubtitle(db, c)`，web / boss 两组各自暴露路由——
+  - H5（前端）：`GET /api/web/GetSubtitle/{chapterId}_{index}.srt`（web 组免鉴权），前端用 `apiUrl`（= `/api/web`）拼地址。
+  - 后台（admin）：`GET /api/boss/GetSubtitle/{chapterId}_{index}.srt`（boss 组），admin 用 `apiUrl`（= `/api/boss`）拼地址；因播放器 fetch 字幕带不了登录 token，`BossAuth` 白名单按前缀 `/api/boss/GetSubtitle/` 放行。
+  - **`apiWebUrl` 已废弃**：admin 不再有 `apiWebUrl` 全局变量，一律用 `apiUrl`；曾出现 admin 用 `apiWebUrl` 但 index.html 未定义、且跨调 `/api/web` 的错误，现已修正。
 - **字幕无需签名**：CF Worker 仅校验视频签名，字幕可匿名直连（`domain + /file + path`）；只有视频才走 `GenerateSignedVideoURL`。
-- **字幕地址必须用全局 `apiWebUrl` 绝对地址**（`public/index.html` 定义，同 `apiUrl` 惯例）：dev 下相对路径会打到前端 dev server（8080 Express）404；跨域由后端全局 CORS 中间件放行。
+- **字幕地址必须用全局 `apiUrl` 绝对地址**（`public/index.html` 定义）：dev 下相对路径会打到前端 dev server（admin 8082 / h5 8080）404；跨域由后端全局 CORS 中间件放行。admin 的 `apiUrl` 指向 `/api/boss`，h5 的 `apiUrl` 指向 `/api/web`，各自调用本组接口。
 
 ## 10. 后台列表交互补充规范
 
@@ -106,6 +109,15 @@
 
 ## 12. 部署注意
 
-- 前端 `apiUrl` / `apiWebUrl` 默认 `http://127.0.0.1:8100`，部署时在 `public/index.html` 切换生产域名（两者同步改，文件内已留同源写法注释行）。
+- 前端 `apiUrl` 默认 `http://127.0.0.1:8100`（admin 拼 `/api/boss`、h5 拼 `/api/web`），部署时在各自 `public/index.html` 切换生产域名（文件内已留同源写法注释行）。`apiWebUrl` 已废弃，不再使用。
 - admin 本地端口 8082（`localhost:8082/admin`）。
 - 改动 `video_secret_key` 后需同步 CF Worker 密钥，否则播放签名校验失败。
+- **IP 库为启动强依赖**：`cz88_public_v4.czdb`（约 31MB）必须随服务部署到**项目根目录**，且进程工作目录为项目根（代码用相对路径 `./cz88_public_v4.czdb`）；文件缺失或路径不对会 `log.Fatal` 直接退出、**不允许启动**。Docker/systemd 部署需设 `WorkingDirectory` 为项目根并把该库文件打进镜像/发布包。
+
+## 13. IP 归属地库（纯真社区版 czdb）
+
+- 依赖 `github.com/tagphi/czdb-search-golang`；库文件 `cz88_public_v4.czdb`（约 31MB，放项目根，未跟踪/按需随部署包分发）。
+- `config/cz88Ip.go`：包 `init()` 调 `InitCz88Ip()`，用 `db.InitDBSearcher("./cz88_public_v4.czdb", key, db.MEMORY)` 全量载入内存，暴露全局 `config.Cz88Ip`。
+- **启动强依赖（刻意设计，非 bug）**：加载失败直接 `log.Fatal` 终止启动——业务要求缺库不允许运行，**不做容错降级**。切勿再改成「打印错误 + 置 nil + 继续启动」。
+- `tools.GetIpAddress(ip)`：`db.Search(ip, config.Cz88Ip)` 查询后用正则 `\s+` 去掉所有空白返回归属地字符串；因启动已保证 `Cz88Ip` 非空，函数内无需 nil 保护。
+- **当前未接入**：暂不集成，留待以后做 H5 前端时再用；作为导出工具函数存在，无调用方也不报编译错。

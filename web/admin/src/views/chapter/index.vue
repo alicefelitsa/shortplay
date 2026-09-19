@@ -224,11 +224,11 @@ export default {
         return
       }
       this.playTitle = '剧名：' + (this.bookName || '') + '，集名：' + (row.chapter_name || '')
-      //字幕列表：同源代理原样返回 SRT，.srt 后缀供播放器识别类型；name 取文件名前缀（如 en.srt → EN）
+      //字幕列表：走后台自身接口（apiUrl → /api/boss）代理原样返回 SRT，不调用前端 /api/web；.srt 后缀供播放器识别类型；name 取文件名前缀（如 en.srt → EN）
       const subtitles = (row.subtitle_urls || []).map((u, idx) => {
         const name = u.split('/').pop().split('?')[0]
         const lang = name.split('.')[0] || 'sub'
-        return {url: apiWebUrl + '/GetSubtitle/' + row.id + '_' + idx + '.srt', name: lang.toUpperCase(), lang: lang}
+        return {url: apiUrl + '/GetSubtitle/' + row.id + '_' + idx + '.srt', name: lang.toUpperCase(), lang: lang}
       })
       //默认 en，无 en 则第一条
       const enIndex = subtitles.findIndex(s => s.lang === 'en')

@@ -1,11 +1,10 @@
 package route
 
 import (
+	"github.com/gin-gonic/gin"
 	"net/http"
 	"shortplay/controller"
 	"shortplay/middleware"
-
-	"github.com/gin-gonic/gin"
 )
 
 // SetupRouter 设置路由地址
@@ -52,6 +51,8 @@ func SetupRouter() *gin.Engine {
 		boss.POST("/SaveConfigSetting", bossController.SaveConfigSetting)
 		// 文件上传
 		boss.POST("/UploadImage", bossController.UploadImage)
+		// 字幕代理（SRT 原样返回，供播放器同源加载；BossAuth 白名单放行）
+		boss.GET("/GetSubtitle/:file", bossController.GetSubtitle)
 	}
 	// 前端公开接口
 	web := router.Group("/api/web")

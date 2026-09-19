@@ -172,9 +172,16 @@ func (wc *WebController) GetSiteConfig(c *gin.Context) {
 	})
 }
 
-// GetSubtitle 字幕代理：服务端拉取字幕原样返回（播放器自行解析 SRT），规避浏览器跨域 fetch 限制
+// GetSubtitle 字幕代理（前端 h5 专用）：走 web 组，原样返回 SRT
 // 路由格式 /GetSubtitle/{id}_{i}.srt，.srt 后缀便于播放器按扩展名识别字幕类型
 func (wc *WebController) GetSubtitle(c *gin.Context) {
+	serveSubtitle(wc.db, c)
+}
+
+// serveSubtitle 字幕代理公共逻辑：查 drama_chapter.subtitle 取第 idx 条路径，
+// 服务端 http.Get(domain + "/file" + path) 原样返回（text/plain，不做格式转换），
+// 仅为规避浏览器跨域 fetch 限制。web / boss 两组各自暴露路由，后台不调用前端接口。
+func serveSubtitle(db *gorm.DB, c *gin.Context) {
 	parts := strings.Split(strings.TrimSuffix(c.Param("file"), ".srt"), "_")
 	if len(parts) != 2 {
 		c.String(http.StatusNotFound, "subtitle not found")
@@ -183,7 +190,7 @@ func (wc *WebController) GetSubtitle(c *gin.Context) {
 	idx := 0
 	_, _ = fmt.Sscanf(parts[1], "%d", &idx)
 	var subtitle string
-	_ = wc.db.Raw("select subtitle from drama_chapter where id = ?", parts[0]).Row().Scan(&subtitle)
+	_ = db.Raw("select subtitle from drama_chapter where id = ?", parts[0]).Row().Scan(&subtitle)
 	paths := make([]string, 0)
 	if subtitle != "" && subtitle != "[]" {
 		_ = json.Unmarshal([]byte(subtitle), &paths)
@@ -197,7 +204,7 @@ func (wc *WebController) GetSubtitle(c *gin.Context) {
 		p = "/" + p
 	}
 	// 字幕无需签名（CF Worker 仅校验视频签名），直接拼路径拉取
-	resp, err := http.Get(playDomain(wc.db) + "/file" + p)
+	resp, err := http.Get(playDomain(db) + "/file" + p)
 	if err != nil {
 		c.String(http.StatusBadGateway, "fetch subtitle failed: "+err.Error())
 		return

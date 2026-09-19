@@ -4,6 +4,7 @@ import (
 	"github.com/gin-gonic/gin"
 	"net/http"
 	"shortplay/config"
+	"strings"
 )
 
 // BossAuth 管理员授权验证
@@ -11,6 +12,11 @@ func BossAuth(c *gin.Context) {
 	path := c.Request.URL.Path
 	// 白名单路径直接放行
 	if path == "/api/boss/login" || path == "/api/boss/logout" || path == "/api/boss/captcha" {
+		c.Next()
+		return
+	}
+	// 字幕代理供播放器（ArtPlayer）直接 fetch，无法携带登录 token，按前缀放行
+	if strings.HasPrefix(path, "/api/boss/GetSubtitle/") {
 		c.Next()
 		return
 	}

@@ -47,3 +47,4 @@ dist/
 
 # Config (含敏感信息，按需放开)
 # config.yaml
+/shortplay

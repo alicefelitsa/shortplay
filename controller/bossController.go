@@ -501,3 +501,11 @@ func (bc *BossController) UploadImage(c *gin.Context) {
 		"fileName": fileName,
 	})
 }
+
+// ==================== 字幕代理 ====================
+
+// GetSubtitle 字幕代理（后台专用）：走 boss 组，与前端 h5 接口分离，后台不调用 /api/web。
+// 复用 serveSubtitle 公共逻辑；播放器 fetch 字幕无法携带登录 token，路由在 BossAuth 白名单按前缀放行。
+func (bc *BossController) GetSubtitle(c *gin.Context) {
+	serveSubtitle(bc.db, c)
+}
