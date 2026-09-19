@@ -122,7 +122,7 @@ func (bc *BossController) GetDramaList(c *gin.Context) {
 	}
 	where := " where " + conds
 	data := make([]map[string]interface{}, 0)
-	err := bc.db.Raw("select id,book_id,book_name,book_name_en,slug,cover,cover2,ratings,status,language,is_free,author,introduction,main_type_id,chapter_count,view_count,follow_count,created_at from drama_book" + where + " order by id desc" + config.PageLimit(c)).Scan(&data).Error
+	err := bc.db.Raw("select id,book_id,book_name,book_name_en,slug,cover,cover2,ratings,status,language,is_free,author,introduction,main_type_id,chapter_count,view_count,follow_count,created_at from drama_book" + where + " order by id desc" + pageLimit(c)).Scan(&data).Error
 	if err != nil {
 		c.JSON(http.StatusOK, gin.H{"code": 500, "message": err.Error()})
 		return
@@ -187,18 +187,14 @@ func (bc *BossController) SaveDrama(c *gin.Context) {
 
 // DelDrama 删除短剧（同时删除关联分集）
 func (bc *BossController) DelDrama(c *gin.Context) {
-	ids := c.Query("ids")
+	idList := tools.SplitIds(c.Query("ids"))
 	// 先查出 book_id 以清理关联分集
 	bookIds := make([]string, 0)
-	_ = bc.db.Raw("select book_id from drama_book where id in(" + ids + ")").Scan(&bookIds).Error
-	result := bc.db.Exec("delete from drama_book where id in(" + ids + ")")
+	_ = bc.db.Raw("select book_id from drama_book where id in (?)", idList).Scan(&bookIds).Error
+	result := bc.db.Exec("delete from drama_book where id in (?)", idList)
 	if len(bookIds) > 0 {
-		quoted := make([]string, 0)
-		for _, b := range bookIds {
-			quoted = append(quoted, "'"+b+"'")
-		}
-		bc.db.Exec("delete from drama_chapter where book_id in(" + strings.Join(quoted, ",") + ")")
-		bc.db.Exec("delete from drama_book_type where book_id in(" + strings.Join(quoted, ",") + ")")
+		bc.db.Exec("delete from drama_chapter where book_id in (?)", bookIds)
+		bc.db.Exec("delete from drama_book_type where book_id in (?)", bookIds)
 	}
 	if result.RowsAffected > 0 {
 		c.JSON(http.StatusOK, gin.H{"code": 0, "message": "操作成功"})
@@ -221,7 +217,7 @@ func (bc *BossController) GetChapterList(c *gin.Context) {
 		where = " where exists (select 1 from drama_book b where b.book_id = drama_chapter.book_id and b.flag = 1)"
 	}
 	data := make([]map[string]interface{}, 0)
-	err := bc.db.Raw("select id,book_id,chapter_id,chapter_name,chapter_index,chapter_index_str,is_unlock,chapter_price,duration,m3u8_flag,mp4_url,video_url,subtitle,created_at from drama_chapter" + where + " order by chapter_index asc" + config.PageLimit(c)).Scan(&data).Error
+	err := bc.db.Raw("select id,book_id,chapter_id,chapter_name,chapter_index,chapter_index_str,is_unlock,chapter_price,duration,m3u8_flag,mp4_url,video_url,subtitle,created_at from drama_chapter" + where + " order by chapter_index asc" + pageLimit(c)).Scan(&data).Error
 	if err != nil {
 		c.JSON(http.StatusOK, gin.H{"code": 500, "message": err.Error()})
 		return
@@ -271,13 +267,8 @@ func (bc *BossController) GetChapterList(c *gin.Context) {
 		}
 	}
 	if len(bookIds) > 0 {
-		placeholders := strings.TrimSuffix(strings.Repeat("?,", len(bookIds)), ",")
-		args := make([]interface{}, len(bookIds))
-		for i, id := range bookIds {
-			args[i] = id
-		}
 		books := make([]map[string]interface{}, 0)
-		if bc.db.Raw("select book_id,book_name from drama_book where book_id in ("+placeholders+")", args...).Scan(&books).Error == nil {
+		if bc.db.Raw("select book_id,book_name from drama_book where book_id in (?)", bookIds).Scan(&books).Error == nil {
 			nameMap := map[string]string{}
 			for _, b := range books {
 				nameMap[fmt.Sprintf("%v", b["book_id"])] = fmt.Sprintf("%v", b["book_name"])
@@ -342,8 +333,8 @@ func (bc *BossController) SaveChapter(c *gin.Context) {
 
 // DelChapter 删除分集
 func (bc *BossController) DelChapter(c *gin.Context) {
-	ids := c.Query("ids")
-	result := bc.db.Exec("delete from drama_chapter where id in(" + ids + ")")
+	idList := tools.SplitIds(c.Query("ids"))
+	result := bc.db.Exec("delete from drama_chapter where id in (?)", idList)
 	if result.RowsAffected > 0 {
 		c.JSON(http.StatusOK, gin.H{"code": 0, "message": "操作成功"})
 	} else {
@@ -359,7 +350,11 @@ func (bc *BossController) SetChapterUnlock(c *gin.Context) {
 		c.JSON(http.StatusOK, gin.H{"code": 400, "message": "参数错误"})
 		return
 	}
-	result := bc.db.Exec("update drama_chapter set is_unlock = "+unlock+", updated_at = ? where id in("+ids+")", time.Now())
+	unlockVal := 0
+	if unlock == "1" {
+		unlockVal = 1
+	}
+	result := bc.db.Exec("update drama_chapter set is_unlock = ?, updated_at = ? where id in (?)", unlockVal, time.Now(), tools.SplitIds(ids))
 	if result.RowsAffected > 0 {
 		c.JSON(http.StatusOK, gin.H{"code": 0, "message": "操作成功"})
 	} else {
@@ -378,7 +373,7 @@ func (bc *BossController) GetTypeList(c *gin.Context) {
 		where = fmt.Sprintf(" where type_name like '%%%v%%'", typeName)
 	}
 	data := make([]map[string]interface{}, 0)
-	err := bc.db.Raw("select * from drama_type" + where + " order by type_id asc" + config.PageLimit(c)).Scan(&data).Error
+	err := bc.db.Raw("select * from drama_type" + where + " order by type_id asc" + pageLimit(c)).Scan(&data).Error
 	if err != nil {
 		c.JSON(http.StatusOK, gin.H{"code": 500, "message": err.Error()})
 		return
@@ -424,8 +419,8 @@ func (bc *BossController) SaveType(c *gin.Context) {
 
 // DelType 删除分类
 func (bc *BossController) DelType(c *gin.Context) {
-	ids := c.Query("ids")
-	result := bc.db.Exec("delete from drama_type where id in(" + ids + ")")
+	idList := tools.SplitIds(c.Query("ids"))
+	result := bc.db.Exec("delete from drama_type where id in (?)", idList)
 	if result.RowsAffected > 0 {
 		c.JSON(http.StatusOK, gin.H{"code": 0, "message": "操作成功"})
 	} else {

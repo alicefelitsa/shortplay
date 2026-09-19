@@ -196,3 +196,15 @@ func CalculateTimeDifference(t1Str, t2Str string) int {
 	diff := t2.Sub(t1)
 	return int(diff.Seconds())
 }
+
+// SplitIds 将逗号分隔的 ids 拆为切片，供 GORM in (?) 参数化展开（避免字符串拼接 SQL）
+func SplitIds(ids string) []interface{} {
+	parts := strings.Split(ids, ",")
+	out := make([]interface{}, 0, len(parts))
+	for _, p := range parts {
+		if p = strings.TrimSpace(p); p != "" {
+			out = append(out, p)
+		}
+	}
+	return out
+}

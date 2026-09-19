@@ -2,13 +2,16 @@ package config
 
 import (
 	"fmt"
-	"github.com/gin-gonic/gin"
 	"gorm.io/driver/mysql"
 	"gorm.io/gorm"
 	"log"
-	"strconv"
 	"sync"
 	"time"
+)
+
+const (
+	maxOpenConns = 100 // 最大连接数
+	maxIdleConns = 10  // 空闲连接数（预热数量对齐此值）
 )
 
 var Mysql *gorm.DB
@@ -34,49 +37,20 @@ func InitMysql() {
 	if err != nil {
 		log.Fatal("获取Mysql连接池时出错：", err)
 	}
-	sqlDB.SetMaxOpenConns(100)                 // 最大连接数
-	sqlDB.SetMaxIdleConns(10)                  // 空闲连接数
+	sqlDB.SetMaxOpenConns(maxOpenConns)        // 最大连接数
+	sqlDB.SetMaxIdleConns(maxIdleConns)        // 空闲连接数
 	sqlDB.SetConnMaxLifetime(30 * time.Minute) // 连接最大存活时间
 	sqlDB.SetConnMaxIdleTime(10 * time.Minute) // 空闲连接最大存活时间
 	if err = sqlDB.Ping(); err != nil {
 		log.Fatal("连接到Mysql时出错：", err)
 	}
 	fmt.Println("Mysql连接成功！")
+	// 预热连接池：启动时预建 maxIdleConns 条连接，避免首批请求承担建连开销
+	warmupConnections(Mysql, maxIdleConns)
 }
 
-// PageLimit 处理Mysql数据分页
-func PageLimit(c *gin.Context) string {
-	limit, err := strconv.Atoi(c.Query("limit"))
-	page, err := strconv.Atoi(c.Query("page"))
-	if page == 0 || limit == 0 || err != nil {
-		return ""
-	} else {
-		page = (page - 1) * limit
-		res := fmt.Sprintf(" limit %v,%v", page, limit)
-		return res
-	}
-}
-
-// PrintMysqlStats 连接池监控打印
-func PrintMysqlStats() {
-	sqlDB, err := Mysql.DB()
-	if err != nil {
-		fmt.Println("获取Mysql连接池失败：", err)
-		return
-	}
-	stats := sqlDB.Stats()
-	fmt.Printf("连接池状态:\n")
-	fmt.Printf("最大打开连接数: %d\n", stats.MaxOpenConnections)
-	fmt.Printf("打开连接数: %d\n", stats.OpenConnections)
-	fmt.Printf("使用中连接数: %d\n", stats.InUse)
-	fmt.Printf("空闲连接数: %d\n", stats.Idle)
-	fmt.Printf("等待连接数: %d\n", stats.WaitCount)
-	fmt.Printf("等待时间总计: %v\n", stats.WaitDuration)
-	fmt.Printf("最大空闲时间关闭数: %d\n", stats.MaxIdleTimeClosed)
-	fmt.Printf("最大生命周期关闭数: %d\n", stats.MaxLifetimeClosed)
-}
-
-// warmupConnections 预热指定数量的连接
+// warmupConnections 预热指定数量的连接：并发执行 SELECT 1 填满空闲池，
+// 使首批业务请求无需等待 TCP 建连 + 握手，降低冷启动首请求延迟。
 func warmupConnections(db *gorm.DB, count int) {
 	start := time.Now()
 	var wg sync.WaitGroup
@@ -98,16 +72,4 @@ func warmupConnections(db *gorm.DB, count int) {
 		}
 	}
 	fmt.Printf("Mysql已预热%v个连接，耗时：%v\n", count, time.Since(start))
-}
-
-// keepAlive 定时保活连接池
-func keepAlive(db *gorm.DB) {
-	ticker := time.NewTicker(10 * time.Minute)
-	defer ticker.Stop()
-	for t := range ticker.C {
-		err := db.Exec("SELECT 1").Error
-		sprintf := fmt.Sprintf("Mysql保活连接池：%s %v", t.Format("2006-01-02 15:04:05"), err)
-		fmt.Println(sprintf)
-		LogInfo("%s", sprintf)
-	}
 }

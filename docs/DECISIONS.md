@@ -6,6 +6,8 @@
 ## 1. 技术栈与架构
 
 - 后端：Go + Gin + GORM + Viper + Redis，分层 `config / controller / middleware / route / tools`，入口 `web.go`（无 main.go）。
+- **控制器文件分离**：`controller/webController.go` 只放前端（web 组）handler，`controller/bossController.go` 只放后台（boss 组）handler；两者共用的辅助函数（`playDomain / videoSecret / videoExpireMinutes / withCoverShow / serveSubtitle`）统一放 `controller/common.go`。后台不得依赖前端控制器文件，反之亦然。
+- **公共函数统一管理**：前后端都要用的公共函数必须集中到统一位置，不得散落在某个控制器里——依赖 `*gorm.DB / *gin.Context` 的控制器层共用辅助函数放 `controller/common.go`；与 HTTP/DB 无关的通用工具放 `tools` 包并导出（如 `tools.SplitIds`）。新增公共函数先判断归属再落位。
 - 前端 admin：Vue 2 + Element UI（管理后台）；前端 h5：Vue 2（用户端）。
 - 数据库：MySQL `drama` 库。
 - 响应约定：shortplay 统一 `res.data.code === 0` 为成功。
@@ -106,6 +108,7 @@
 - **el-col 浮动高度独立**：要让同行列等高/居中，所在 `el-row` 必须 `type="flex"`。
 - **GORM Scan 数值列类型断言静默失败**：`drama_chapter.book_id` 是数值类型，Scan 进 `map[string]interface{}` 后为 int64，`.(string)` 断言全部落空且不报错（曾致剧名列全空）；取 map 值统一 `fmt.Sprintf("%v", ...)` 归一化 + nil 保护。
 - **Windows 显示缩放影响列宽观感**：约 180% 缩放下 140 CSS px 渲染成 ~250 物理像素，截图看似列宽未生效，实际配置有效，勿反复改。
+- **SQL 一律参数化，禁止字符串拼接（尤其 `in(...)`）**：拼接会让 GoLand 的 SQL 语言注入检查报「应为 expression」红色误报，且存在 SQL 注入隐患。多值查询用 GORM `in (?)` + 切片参数（GORM 自动展开为 `?,?,?`，空切片展开为 `NULL` 安全不报错）；逗号分隔 ids 先经 `tools.SplitIds` 拆成 `[]interface{}` 再传入。**以后写新功能的所有 SQL 都必须遵守此规则。**
 
 ## 12. 部署注意
 
