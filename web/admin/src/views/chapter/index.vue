@@ -256,7 +256,8 @@ export default {
           fullscreen: true,
           fullscreenWeb: true,
           //5.4.0 仅支持 subtitle 单个对象（ArtPlayer 自行解析 SRT），多语言切换用 setting.add 挂进齿轮
-          subtitle: defaultSub ? {url: defaultSub.url, type: 'srt', name: defaultSub.name} : undefined,
+          //无字幕时不能传 subtitle 键（传 undefined 会触发 Type Error 致播放器构造失败、整部剧播不了），用条件展开按需注入
+          ...(defaultSub ? {subtitle: {url: defaultSub.url, type: 'srt', name: defaultSub.name}} : {}),
         })
         //齿轮 -> 字幕菜单：切换语言 / 无字幕
         if (subtitles.length > 0) {

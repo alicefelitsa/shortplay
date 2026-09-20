@@ -81,6 +81,7 @@
 
 - **播放器选型：ArtPlayer（npm `artplayer`，实测 5.4.0）**，原生解析 SRT。不要用原生 `<video>+<track>`——track 只支持 WebVTT，SRT 必失败（曾走过 SRT→VTT 转换方案，已废弃）。
 - **5.4.0 没有 `subtitles` 数组选项**（传了会被静默忽略）：默认字幕用 `subtitle: {url, type:'srt', name}` 单对象；多语言切换用 `player.setting.add({name, html, tooltip, selector, onSelect})` 挂进齿轮菜单，onSelect 里 `player.subtitle.switch(url, {type:'srt'})`，「无字幕」用 `player.subtitle.style({display:'none'})`（恢复传 `display:''`）。
+- **无字幕时禁止传 `subtitle` 键**：5.4.0 校验器对「存在但类型不对」的 key 直接抛 `Type Error: 'option.subtitle' require 'object' type, but got 'undefined'`，`new Artplayer()` 构造失败 → 整部剧一集都播不了。必须用条件展开按需注入：`...(defaultSub ? {subtitle: {url, type:'srt', name}} : {})`，切勿写 `subtitle: defaultSub ? {...} : undefined`。同理 `subtitleOffset` 用 `subtitles.length > 0`、齿轮字幕菜单用 `if (subtitles.length > 0)` 一并跳过。
 - 齿轮菜单按启用项动态生成：`setting: true` + `playbackRate / aspectRatio / flip / subtitleOffset`；全不启用时菜单为空、点击像无反应；中文界面 `lang: 'zh-cn'`（内置于核心包）。
 - **字幕位置**：默认 `--art-subtitle-bottom: 15px` 贴底，短剧手机端观看用 `cssVar: {'--art-subtitle-bottom': '15%'}` 抬高；控制栏显示时 ArtPlayer 自动叠加控制栏高度。
 - **字幕代理**：服务端查 `drama_chapter.subtitle` 取对应路径后 `http.Get(domain + "/file" + path)` **原样返回**（`text/plain`，不做格式转换）。保留代理仅为规避浏览器跨域 fetch 限制；`.srt` 后缀供播放器识别类型。**前后端接口分离，后台不调用前端接口**：公共逻辑抽为 `controller.serveSubtitle(db, c)`，web / boss 两组各自暴露路由——
@@ -108,6 +109,7 @@
 - **el-col 浮动高度独立**：要让同行列等高/居中，所在 `el-row` 必须 `type="flex"`。
 - **GORM Scan 数值列类型断言静默失败**：`drama_chapter.book_id` 是数值类型，Scan 进 `map[string]interface{}` 后为 int64，`.(string)` 断言全部落空且不报错（曾致剧名列全空）；取 map 值统一 `fmt.Sprintf("%v", ...)` 归一化 + nil 保护。
 - **Windows 显示缩放影响列宽观感**：约 180% 缩放下 140 CSS px 渲染成 ~250 物理像素，截图看似列宽未生效，实际配置有效，勿反复改。
+- **给库传 `undefined` 值的 option 键会触发类型校验报错**：ArtPlayer 5.4.0 对「键存在但值为 undefined/类型不符」直接抛 Type Error 致构造失败（无字幕剧集因 `subtitle: undefined` 整部播不了）。凡是「有则传、无则不传」的可选配置，一律用条件展开 `...(cond ? {key: val} : {})` 注入，而不是三元给 `undefined`。**这是通用教训：可选 option 无值时不要传该键。**
 - **SQL 一律参数化，禁止字符串拼接（尤其 `in(...)`）**：拼接会让 GoLand 的 SQL 语言注入检查报「应为 expression」红色误报，且存在 SQL 注入隐患。多值查询用 GORM `in (?)` + 切片参数（GORM 自动展开为 `?,?,?`，空切片展开为 `NULL` 安全不报错）；逗号分隔 ids 先经 `tools.SplitIds` 拆成 `[]interface{}` 再传入。**以后写新功能的所有 SQL 都必须遵守此规则。**
 
 ## 12. 部署注意
