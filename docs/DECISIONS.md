@@ -119,6 +119,7 @@
 - admin 本地端口 8082（`localhost:8082/admin`）。
 - 改动 `video_secret_key` 后需同步 CF Worker 密钥，否则播放签名校验失败。
 - **IP 库为启动强依赖**：`cz88_public_v4.czdb`（约 31MB）必须随服务部署到**项目根目录**，且进程工作目录为项目根（代码用相对路径 `./cz88_public_v4.czdb`）；文件缺失或路径不对会 `log.Fatal` 直接退出、**不允许启动**。Docker/systemd 部署需设 `WorkingDirectory` 为项目根并把该库文件打进镜像/发布包。
+- **构建目标固定为 Linux**：`go env` 默认保持 `CGO_ENABLED=0`、`GOOS=linux`、`GOARCH=amd64`（交叉编译说明见 `main.go` 注释，真正入口在 `web.go`，构建：`go build -o shortplay web.go`）。本地调试若临时改了 go env（如 `go env -w GOOS=windows` 跑调试程序），**调试完必须改回** `go env -w CGO_ENABLED=0 GOOS=linux GOARCH=amd64`；优先用单条命令级环境变量覆盖（`$env:GOOS='windows'; go run ...; $env:GOOS=$null`）以免污染全局配置。
 
 ## 13. IP 归属地库（纯真社区版 czdb）
 
