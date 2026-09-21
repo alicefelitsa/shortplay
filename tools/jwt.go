@@ -26,7 +26,7 @@ type Claims struct {
 func jwtSecretKey() []byte {
 	key := config.Conf.GetString("jwt.secretKey")
 	if key == "" {
-		key = "shortplay-default-jwt-secret"
+		key = "b34253853b8466c73d232c2f716c5c0e417b9f79a44a3ae6ad695914f25d87f"
 	}
 	return []byte(key)
 }

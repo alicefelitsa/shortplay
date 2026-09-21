@@ -27,7 +27,7 @@ mysql:
 # ===========================
 jwt:
   # 签名密钥，务必修改为随机长字符串并妥善保管
-  secretKey: "please-change-this-jwt-secret-key"
+  secretKey: "b34253853b8466c73d232c2f716c5c0e417b9f79a44a3ae6ad695914f25d87f"
   # token有效期（小时）
   expireHours: 24
 
