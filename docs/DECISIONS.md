@@ -6,6 +6,7 @@
 ## 1. 技术栈与架构
 
 - 后端：Go + Gin + GORM + Viper + Redis，分层 `config / controller / middleware / route / tools`，入口 `web.go`（无 main.go）。
+- **登录鉴权：前后台共用一套 JWT（HS256）**，按 `role` 区分管理员/H5 用户（详见 §14）；`config.Redis` 已无任何使用方（仅保留 `config/redis.go` 初始化）。
 - **控制器文件分离**：`controller/webController.go` 只放前端（web 组）handler，`controller/bossController.go` 只放后台（boss 组）handler；两者共用的辅助函数（`playDomain / videoSecret / videoExpireMinutes / withCoverShow / serveSubtitle`）统一放 `controller/common.go`。后台不得依赖前端控制器文件，反之亦然。
 - **公共函数统一管理**：前后端都要用的公共函数必须集中到统一位置，不得散落在某个控制器里——依赖 `*gorm.DB / *gin.Context` 的控制器层共用辅助函数放 `controller/common.go`；与 HTTP/DB 无关的通用工具放 `tools` 包并导出（如 `tools.SplitIds`）。新增公共函数先判断归属再落位。
 - 前端 admin：Vue 2 + Element UI（管理后台）；前端 h5：Vue 2（用户端）。
@@ -107,7 +108,7 @@
 - **图片 URL 拼接需考虑中间层**：直连 B2 与经 CF Worker 的路径不同（Worker 需 `/file` 前缀），拼接前确认链路。
 - **编辑回显依赖列表 select 字段**：`GetDramaList` 漏 select `introduction` 导致编辑弹窗简介为空；回显字段必须在列表查询中选出。
 - **el-col 浮动高度独立**：要让同行列等高/居中，所在 `el-row` 必须 `type="flex"`。
-- **GORM Scan 数值列类型断言静默失败**：`drama_chapter.book_id` 是数值类型，Scan 进 `map[string]interface{}` 后为 int64，`.(string)` 断言全部落空且不报错（曾致剧名列全空）；取 map 值统一 `fmt.Sprintf("%v", ...)` 归一化 + nil 保护。
+- **GORM `Raw().Row().Scan(&int)` 会 nil panic**：取单列单行 id 时，`db.Raw(...).Row().Scan(&adminID)` 在本项目 GORM 版本直接 `invalid memory address or nil pointer dereference`（gin Recovery 转为 HTTP 500，非 body 里的 code）。**取单列值用 `Table().Where().Pluck("id", &[]int{})` 或 `Scan(&struct)`**，GORM 内部完成列类型→int 转换；`admin.id` 扫进 map 后实际是 **`uint32`**（非 int64），故基于 map 的 int/int64/uint64/float64 类型 switch 仍会落空。
 - **Windows 显示缩放影响列宽观感**：约 180% 缩放下 140 CSS px 渲染成 ~250 物理像素，截图看似列宽未生效，实际配置有效，勿反复改。
 - **给库传 `undefined` 值的 option 键会触发类型校验报错**：ArtPlayer 5.4.0 对「键存在但值为 undefined/类型不符」直接抛 Type Error 致构造失败（无字幕剧集因 `subtitle: undefined` 整部播不了）。凡是「有则传、无则不传」的可选配置，一律用条件展开 `...(cond ? {key: val} : {})` 注入，而不是三元给 `undefined`。**这是通用教训：可选 option 无值时不要传该键。**
 - **SQL 一律参数化，禁止字符串拼接（尤其 `in(...)`）**：拼接会让 GoLand 的 SQL 语言注入检查报「应为 expression」红色误报，且存在 SQL 注入隐患。多值查询用 GORM `in (?)` + 切片参数（GORM 自动展开为 `?,?,?`，空切片展开为 `NULL` 安全不报错）；逗号分隔 ids 先经 `tools.SplitIds` 拆成 `[]interface{}` 再传入。**以后写新功能的所有 SQL 都必须遵守此规则。**
@@ -126,3 +127,14 @@
 - **启动强依赖（刻意设计，非 bug）**：加载失败直接 `log.Fatal` 终止启动——业务要求缺库不允许运行，**不做容错降级**。切勿再改成「打印错误 + 置 nil + 继续启动」。
 - `tools.GetIpAddress(ip)`：`db.Search(ip, config.Cz88Ip)` 查询后用正则 `\s+` 去掉所有空白返回归属地字符串；因启动已保证 `Cz88Ip` 非空，函数内无需 nil 保护。
 - **当前未接入**：暂不集成，留待以后做 H5 前端时再用；作为导出工具函数存在，无调用方也不报编译错。
+
+## 14. 登录鉴权（JWT，前后台共用一套）
+
+- **方案**：前后台共用同一套 JWT（HS256）签发/解析，靠载荷里的 `role` 区分身份；`tools/jwt.go` 提供 `Claims{UserID, Role}`、角色常量 `RoleAdmin`/`RoleUser`、`GenerateToken(userID, role)`、`ParseToken(token)`、`ParseAuthorization(header)`（从 Authorization 头解析，内含 Bearer 兼容）。
+- **后台**：`AdminLogin` 用 `bc.db.Table("admin").Where("account = ? and password = ?", ...).Pluck("id", &ids)` 取 id（`len(ids)==0` 即账号密码错；Pluck 避开 map 断言与 `.Row()` 的 nil panic，见 §11）→`GenerateToken(ids[0], RoleAdmin)`；`BossAuth` 解析后校验 `role==RoleAdmin`，`c.Set("userID"/"role")`；`AuthUser` 从 `c.GetInt("userID")` 取当前管理员。**`c.Set("role", ...)` 当前无读取方，但为有意保留的约定**（登录中间件统一把 `userID`/`role` 注入 context，供后续 handler 做权限分支时直接取用），勿当死代码删除。
+- **H5 用户端**：`UserAuth` 共用同一套解析，校验 `role==RoleUser`；签发由用户登录接口调 `GenerateToken(id, RoleUser)`（目前 `/api/user` 登录尚未接入，中间件已就绪）。
+- **配置在 `config.yaml`（非 DB config 表）**：`jwt.secretKey`（签名密钥，**部署级密钥，上线务必改成随机长串**）、`jwt.expireHours`（有效期，默认 12，代码层空/≤0 回退 12，前后台共用）。与 §5 视频签名密钥分属不同体系：视频密钥放 DB 供后台页可改，JWT 密钥属基础设施密钥放配置文件。
+- **中间件统一行为**：BossAuth 白名单（login/logout/captcha、`/api/boss/GetSubtitle/` 前缀）、UserAuth 白名单（login/register）直接放行；其余取 `Authorization` 头经 `ParseAuthorization` 解析（**兼容 `Bearer <token>` 与裸 `<token>`**，现有 admin 前端直接裸传无需改），角色不符或过期按 §1 约定返回 HTTP 200 + body `code:401`。
+- **前端无改动**：admin `request.js` 已把 token 放 `Authorization` 头，`login.js` 存 token 逻辑不变。
+- **Redis 已不再用于鉴权（但保留）**：后台旧「Redis 存随机 token」已废弃，H5 也改为一套 JWT；`config.Redis` 目前无鉴权调用方，但**刻意保留**（`config/redis.go` 仍启动时连接 Redis 并 `log.Fatal`，为后续功能预留），不随本次 JWT 改造下掉。
+- **已知取舍**：JWT 无法服务端主动吊销，登出/改密后旧 token 到期前仍有效；如需强制下线再加 Redis 黑名单。改 `jwt.secretKey` 会使所有已发 token 失效，用户需重登。

@@ -23,6 +23,15 @@ mysql:
   password: "M2dPKXCpdzDdzs6z"
 
 # ===========================
+# JWT登录鉴权配置
+# ===========================
+jwt:
+  # 签名密钥，务必修改为随机长字符串并妥善保管
+  secretKey: "please-change-this-jwt-secret-key"
+  # token有效期（小时）
+  expireHours: 24
+
+# ===========================
 # Redis配置
 # ===========================
 redis:
