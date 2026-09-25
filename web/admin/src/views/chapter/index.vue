@@ -117,7 +117,7 @@
 </template>
 
 <script>
-import {delChapter, getChapterList, setChapterUnlock} from "@/api/chapter";
+import {delChapter, getChapterList, getChapterPlay, setChapterUnlock} from "@/api/chapter";
 import Artplayer from 'artplayer'
 import save from "./save";
 
@@ -217,18 +217,40 @@ export default {
       this.editData = {...row}
       this.dialogVisible = true;
     },
-    //播放该集视频（ArtPlayer，原生支持 SRT，控制栏可切换）
-    play(row) {
-      if (!row.play_url) {
+    //播放该集视频：签名在点击播放时按需获取（列表不再预生成 play_url，避免加载后久置过期点播放失败）；
+    //字幕无需签名，解析行内 subtitle JSON 数组取语言名，地址走本组 GetSubtitle 代理（ArtPlayer 原生支持 SRT，控制栏可切换）
+    async play(row) {
+      if (!row.video_url) {
         this.$message.warning('该集暂无视频')
         return
       }
+      let playUrl = ''
+      try {
+        const res = await getChapterPlay(row.id)
+        if (res.data.code !== 0) {
+          this.$message.error(res.data.message)
+          return
+        }
+        playUrl = res.data.data.play_url
+      } catch (e) {
+        this.$message.error(e.message)
+        return
+      }
       this.playTitle = '剧名：' + (this.bookName || '') + '，集名：' + (row.chapter_name || '')
-      //字幕列表：走后台自身接口（apiUrl → /api/boss）代理原样返回 SRT，不调用前端 /api/web；.srt 后缀供播放器识别类型；name 取文件名前缀（如 en.srt → EN）
-      const subtitles = (row.subtitle_urls || []).map((u, idx) => {
-        const name = u.split('/').pop().split('?')[0]
+      //字幕列表：idx 保持 subtitle 数组原下标（与 GetSubtitle 代理取路径的下标一致）；name 取文件名前缀（如 en.srt → EN）
+      let subPaths = []
+      try {
+        const arr = JSON.parse(row.subtitle || '[]')
+        subPaths = Array.isArray(arr) ? arr : []
+      } catch (e) {
+        subPaths = []
+      }
+      const subtitles = []
+      subPaths.forEach((p, idx) => {
+        if (!p) return
+        const name = p.split('/').pop()
         const lang = name.split('.')[0] || 'sub'
-        return {url: apiUrl + '/GetSubtitle/' + row.id + '_' + idx + '.srt', name: lang.toUpperCase(), lang: lang}
+        subtitles.push({url: apiUrl + '/GetSubtitle/' + row.id + '_' + idx + '.srt', name: lang.toUpperCase(), lang: lang})
       })
       //默认 en，无 en 则第一条
       const enIndex = subtitles.findIndex(s => s.lang === 'en')
@@ -241,7 +263,7 @@ export default {
         }
         this.player = new Artplayer({
           container: this.$refs.playContainer,
-          url: row.play_url,
+          url: playUrl,
           autoplay: true,
           volume: 0.7,
           lang: 'zh-cn',

@@ -59,8 +59,8 @@ func (wc *WebController) GetDramaDetail(c *gin.Context) {
 		domain := playDomain(wc.db)
 		withCoverShow(data, domain)
 		bid, _ := data[0]["book_id"].(string)
-		// 分集列表：只返回播放需要的字段
-		_ = wc.db.Raw("select chapter_id,chapter_name,chapter_index,chapter_index_str,is_unlock,chapter_price,duration,cover,mp4_url,video_url,m3u8_flag from drama_chapter where book_id = ? order by chapter_index asc", bid).Scan(&episodes).Error
+		// 分集列表：只返回播放需要的字段（mp4_url 为失效旧源，不再返回）
+		_ = wc.db.Raw("select chapter_id,chapter_name,chapter_index,chapter_index_str,is_unlock,chapter_price,duration,cover,video_url,m3u8_flag from drama_chapter where book_id = ? order by chapter_index asc", bid).Scan(&episodes).Error
 		// 视频播放地址：/file + video_url 并做 HMAC 签名（CF Worker 校验），有效期读配置
 		secret := videoSecret(wc.db)
 		expireMinutes := videoExpireMinutes(wc.db)

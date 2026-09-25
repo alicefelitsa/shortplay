@@ -1,13 +1,14 @@
 package controller
 
 import (
-	"encoding/json"
 	"fmt"
-	"github.com/gin-gonic/gin"
-	"gorm.io/gorm"
 	"net/http"
 	"shortplay/config"
 	"shortplay/tools"
+
+	"github.com/gin-gonic/gin"
+	"gorm.io/gorm"
+
 	"strings"
 	"time"
 )
@@ -207,42 +208,14 @@ func (bc *BossController) GetChapterList(c *gin.Context) {
 		where = " where exists (select 1 from drama_book b where b.book_id = drama_chapter.book_id and b.flag = 1)"
 	}
 	data := make([]map[string]interface{}, 0)
-	err := bc.db.Raw("select id,book_id,chapter_id,chapter_name,chapter_index,chapter_index_str,is_unlock,chapter_price,duration,m3u8_flag,mp4_url,video_url,subtitle,created_at from drama_chapter" + where + " order by chapter_index asc" + pageLimit(c)).Scan(&data).Error
+	err := bc.db.Raw("select id,book_id,chapter_id,chapter_name,chapter_index,chapter_index_str,is_unlock,chapter_price,duration,m3u8_flag,video_url,subtitle,created_at from drama_chapter" + where + " order by chapter_index asc" + pageLimit(c)).Scan(&data).Error
 	if err != nil {
 		c.JSON(http.StatusOK, gin.H{"code": 500, "message": err.Error()})
 		return
 	}
 	formatTimeFields(data)
-	// 视频播放地址：/file + video_url 并做 HMAC 签名（CF Worker 校验），有效期读配置
-	domain := playDomain(bc.db)
-	secret := videoSecret(bc.db)
-	expireMinutes := videoExpireMinutes(bc.db)
-	for _, row := range data {
-		vu, _ := row["video_url"].(string)
-		if vu != "" {
-			if !strings.HasPrefix(vu, "/") {
-				vu = "/" + vu
-			}
-			row["play_url"] = tools.GenerateSignedVideoURL(domain, "/file"+vu, secret, expireMinutes)
-		}
-		// 字幕地址：JSON 数组，逐条签名供 <track> 加载
-		subs := make([]string, 0)
-		if subRaw, _ := row["subtitle"].(string); subRaw != "" && subRaw != "[]" {
-			paths := make([]string, 0)
-			if json.Unmarshal([]byte(subRaw), &paths) == nil {
-				for _, p := range paths {
-					if p == "" {
-						continue
-					}
-					if !strings.HasPrefix(p, "/") {
-						p = "/" + p
-					}
-					subs = append(subs, tools.GenerateSignedVideoURL(domain, "/file"+p, secret, expireMinutes))
-				}
-			}
-		}
-		row["subtitle_urls"] = subs
-	}
+	// 播放签名不在列表预生成：列表加载到点击播放可能间隔很久、签名过期后点播放就播不了，
+	// 改为点播放时调 GetChapterPlay 按需签发；字幕无需签名，走 GetSubtitle 代理加载
 	//关联剧名：按当页 book_id 批量查 drama_book 注入，供列表列展示（book_id 可能为数值类型，统一 Sprintf 归一化）
 	bookIds := make([]string, 0)
 	seen := map[string]bool{}
@@ -285,6 +258,36 @@ func (bc *BossController) GetChapterList(c *gin.Context) {
 		_ = bc.db.Raw("select book_name from drama_book where book_id = ?", queryBookId).Row().Scan(&bookName)
 	}
 	c.JSON(http.StatusOK, gin.H{"code": code, "message": "操作成功", "count": count, "data": data, "book_name": bookName})
+}
+
+// GetChapterPlay 获取单集播放地址：点击播放时按需生成视频签名（HMAC，CF Worker 校验），
+// 避免列表预生成 play_url 后久置过期导致无法播放；字幕无需签名，仍走 GetSubtitle 代理加载
+func (bc *BossController) GetChapterPlay(c *gin.Context) {
+	id := c.Query("id")
+	if id == "" {
+		c.JSON(http.StatusOK, gin.H{"code": 400, "message": "参数错误"})
+		return
+	}
+	rows := make([]map[string]interface{}, 0)
+	err := bc.db.Raw("select video_url from drama_chapter where id = ?", id).Scan(&rows).Error
+	if err != nil {
+		c.JSON(http.StatusOK, gin.H{"code": 500, "message": err.Error()})
+		return
+	}
+	if len(rows) == 0 {
+		c.JSON(http.StatusOK, gin.H{"code": 400, "message": "分集不存在"})
+		return
+	}
+	vu, _ := rows[0]["video_url"].(string)
+	if vu == "" {
+		c.JSON(http.StatusOK, gin.H{"code": 400, "message": "该集暂无视频"})
+		return
+	}
+	if !strings.HasPrefix(vu, "/") {
+		vu = "/" + vu
+	}
+	playUrl := tools.GenerateSignedVideoURL(playDomain(bc.db), "/file"+vu, videoSecret(bc.db), videoExpireMinutes(bc.db))
+	c.JSON(http.StatusOK, gin.H{"code": 0, "message": "操作成功", "data": gin.H{"play_url": playUrl}})
 }
 
 // AddChapter 添加分集

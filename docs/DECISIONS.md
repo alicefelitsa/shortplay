@@ -32,13 +32,14 @@
 
 ## 4. 视频播放签名（HMAC-SHA256）
 
-- 播放地址：`domain + "/file" + video_url`（`video_url` 为 B2 相对路径；`mp4_url` 是失效旧源，勿用）。
+- 播放地址：`domain + "/file" + video_url`（`video_url` 为 B2 相对路径；`mp4_url` 是失效旧源，**接口已不再返回**，后台 GetChapterList / 前端 GetDramaDetail 的 select 均已剔除，H5 `videoOf(ep)` 只用 `play_url`）。
 - 签名算法（`tools/video_sign.go` → `GenerateSignedVideoURL`）：
   - `message = videoPath + ":" + expires`
   - `sig = base64.URLEncoding( HMAC-SHA256(secretKey, message) )`
   - 最终：`{domain}{videoPath}?expires={expires}&signature={sig}`
 - 过期时间按**分钟**计（`video_expire_minutes`），默认 1440（=24h）；后台可配，上限 10080。
 - `GetDramaDetail` 的 episodes 注入 `play_url`（已签名）；H5 `videoOf(ep)` 优先用 `play_url`。
+- **后台播放签名按需签发**：分集列表不预生成 `play_url`（列表加载到点播放可能间隔超过有效期，预签名过期后播不了），点「播放」时调 `GET /api/boss/GetChapterPlay?id=` 现场签名返回 `play_url`；字幕不签名（见 §9）。
 - **CF Worker 侧密钥必须与 config 表 `video_secret_key` 同步**，改动其一需改另一。
 
 ## 5. config 配置表
@@ -74,9 +75,10 @@
 - **默认列表过滤**：`GetChapterList` 不传 `book_id` 时只显示 `flag=1` 短剧关联的集（`where exists (select 1 from drama_book b where b.book_id = drama_chapter.book_id and b.flag = 1)`），与 H5 展示同口径；按剧集ID查询时不过滤，便于管理下架/测试剧。
 - **剧名注入**：`book_name` 由后端返回——工具栏/弹窗用的单值按查询ID（未传取首行）查 `drama_book`；列表列按当页去重 book_id 一次 `in (?)` 批量查注入每行。
 - **播放弹窗**：ArtPlayer 挂载，`top="3vh"`、容器 `height: 70vh`；仅允许点 X 关闭（`:close-on-click-modal="false"` + `:close-on-press-escape="false"`）；标题 `slot="title"` 单行省略 + `padding-right: 30px` 防挡 X，格式「剧名：xxx，集名：xxx」。
+- **播放签名按需签发**：`GetChapterList` 不返回 `play_url / subtitle_urls`（预生成签名久置会过期）；点「播放」先调 `GetChapterPlay` 取新签名再挂播放器。**字幕无需签名**：前端解析行内 `subtitle` JSON 数组取语言名，地址走 `GetSubtitle` 代理，idx 用数组原下标（与代理取路径下标一致）。
 - **字幕存储**：`drama_chapter.subtitle` 为 JSON 数组（如 `["/video/xxx/en.srt"]`），`[]`/空 = 无字幕；编辑弹窗（save.vue）用多行文本编辑，**每行一条路径**，保存时转 JSON 数组；字段标签「字幕路径」「视频路径」。
 - **批量操作**：工具栏「批量解锁/批量锁定」，交互同删除（勾选→确认→调接口→刷新）；接口 `GET /api/boss/SetChapterUnlock?ids=1,2&is_unlock=0|1`，后端严格校验 is_unlock 仅 0/1 后拼接 SQL，顺带更新 `updated_at`。批量接口统一 GET + 逗号分隔 ids。
-- **表单提交防御**：编辑保存只提交真实表字段，剔除列表注入的 `play_url / subtitle_urls / book_name / cover_show`，否则 `Updates` 报「操作失败」。
+- **表单提交防御**：编辑保存只提交真实表字段（save.vue 白名单拼装），列表注入的 `book_name` 等不会进 payload，否则 `Updates` 报「操作失败」。
 
 ## 9. 字幕加载与播放（ArtPlayer + 同源代理）
 
@@ -112,6 +114,7 @@
 - **Windows 显示缩放影响列宽观感**：约 180% 缩放下 140 CSS px 渲染成 ~250 物理像素，截图看似列宽未生效，实际配置有效，勿反复改。
 - **给库传 `undefined` 值的 option 键会触发类型校验报错**：ArtPlayer 5.4.0 对「键存在但值为 undefined/类型不符」直接抛 Type Error 致构造失败（无字幕剧集因 `subtitle: undefined` 整部播不了）。凡是「有则传、无则不传」的可选配置，一律用条件展开 `...(cond ? {key: val} : {})` 注入，而不是三元给 `undefined`。**这是通用教训：可选 option 无值时不要传该键。**
 - **SQL 一律参数化，禁止字符串拼接（尤其 `in(...)`）**：拼接会让 GoLand 的 SQL 语言注入检查报「应为 expression」红色误报，且存在 SQL 注入隐患。多值查询用 GORM `in (?)` + 切片参数（GORM 自动展开为 `?,?,?`，空切片展开为 `NULL` 安全不报错）；逗号分隔 ids 先经 `tools.SplitIds` 拆成 `[]interface{}` 再传入。**以后写新功能的所有 SQL 都必须遵守此规则。**
+- **列表预生成播放签名会过期**：签名有效期从签发时刻算，列表加载时批量签、用户稍后才点播放就会校验失败播不了；播放类签名一律点击时按需签发（后台 `GetChapterPlay`），字幕不签名。
 
 ## 12. 部署注意
 

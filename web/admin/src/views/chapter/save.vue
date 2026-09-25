@@ -147,7 +147,7 @@ export default {
       this.$refs.form.validate(async (valid) => {
         if (!valid) return
         try {
-          //只提交表字段：排除列表注入的 play_url/subtitle_urls/book_name 等，避免更新不存在列失败
+          //只提交真实表字段（白名单拼装），列表注入的 book_name 等不会进 payload，避免更新不存在列失败
           const paths = this.subtitleText.split('\n').map(s => s.trim()).filter(s => s)
           const payload = {
             id: this.form.id,

@@ -80,8 +80,8 @@ export default {
   },
   methods: {
     videoOf(ep) {
-      // 优先用后端签名的播放地址（CF Worker 校验），回退旧采集源
-      return ep.play_url || ep.mp4_url || ''
+      // 只用后端签名的播放地址（CF Worker 校验）；mp4_url 为失效旧源，接口已不再返回
+      return ep.play_url || ''
     },
     fetchData() {
       const bookId = this.$route.params.id

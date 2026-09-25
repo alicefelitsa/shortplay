@@ -37,6 +37,7 @@ func SetupRouter() *gin.Engine {
 		boss.GET("/DelDrama", bossController.DelDrama)
 		// 分集管理
 		boss.GET("/GetChapterList", bossController.GetChapterList)
+		boss.GET("/GetChapterPlay", bossController.GetChapterPlay)
 		boss.POST("/AddChapter", bossController.AddChapter)
 		boss.POST("/SaveChapter", bossController.SaveChapter)
 		boss.GET("/DelChapter", bossController.DelChapter)
